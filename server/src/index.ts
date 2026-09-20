@@ -17,7 +17,7 @@ const authenticate = (req: express.Request, res: express.Response, next: express
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const token = authHeader.split(' ')[1];
+  const token = authHeader.split(' ')[1] || '';
   const payload = verifyToken(token);
   
   if (!payload) {
@@ -196,7 +196,7 @@ app.post('/api/projects', authenticate, async (req, res) => {
 app.put('/api/projects/:id', authenticate, async (req, res) => {
   try {
     const userId = (req as any).user.id;
-    const projectId = req.params.id;
+    const projectId = req.params.id as string;
     const projectData = req.body; // ProjectDocument
     
     const existing = db.select().from(projects).where(eq(projects.id, projectId)).get();
