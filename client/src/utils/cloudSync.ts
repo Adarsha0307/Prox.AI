@@ -99,6 +99,13 @@ export class CloudSyncManager {
     }, SAVE_DEBOUNCE_MS);
   }
 
+  /** Reads the pending save so the retry path can see work queued during the
+   *  in-flight write. A method call is used because TS narrows `this.pending` to
+   *  `null` after it is cleared above and then never widens it across the await. */
+  private currentPending(): PendingSave | null {
+    return this.pending;
+  }
+
   async flush(): Promise<void> {
     if (this.inFlight) return; // a newer save will be picked up afterwards
     const pending = this.pending;
@@ -136,7 +143,10 @@ export class CloudSyncManager {
         this.emit('conflict', result.error.message);
       } else if (result.error.retryable && pending.attempts < MAX_ATTEMPTS) {
         const retry: PendingSave = { ...pending, attempts: pending.attempts + 1 };
-        if (!this.pending || this.pending.revision <= retry.revision) this.pending = retry;
+        // A newer save may have been queued while this write was in flight; keep
+        // the newest one.
+        const queued = this.currentPending();
+        if (queued === null || queued.revision <= retry.revision) this.pending = retry;
         this.retryTimer = setTimeout(() => {
           this.retryTimer = null;
           void this.flush();

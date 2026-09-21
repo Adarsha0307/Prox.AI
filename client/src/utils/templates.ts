@@ -127,12 +127,11 @@ export const templates = {
       id: uuidv4(),
       background: '#fafafa',
       elements: [
-        // Placeholder for an image element, just using a shape/text for now
+        // Placeholder for an image element, using a shape/text for now
         {
           id: uuidv4(),
-          type: 'shape',
-          role: 'decoration',
-          shapeType: 'rectangle',
+          type: 'rectangle',
+          role: 'background',
           left: 0,
           top: 0,
           width: 1080,
@@ -141,7 +140,7 @@ export const templates = {
           opacity: 1,
           locked: false,
           fill: '#e5e7eb'
-        } as any,
+        },
         createText('THE FUTURE OF\nARCHITECTURE', 100, 700, 72, 'bold', '#111827', 'heading'),
       ]
     }),
@@ -153,9 +152,8 @@ export const templates = {
         createText('Modern architecture is increasingly focusing on environmental integration, prioritizing renewable materials and passive cooling systems.', 100, 220, 40, 'normal', '#111827', 'body'),
         {
           id: uuidv4(),
-          type: 'shape',
-          role: 'decoration',
-          shapeType: 'rectangle',
+          type: 'rectangle',
+          role: 'background',
           left: 100,
           top: 500,
           width: 880,
@@ -164,7 +162,7 @@ export const templates = {
           opacity: 1,
           locked: false,
           fill: '#e5e7eb'
-        } as any
+        }
       ]
     }),
     list: (): Slide => ({
@@ -189,9 +187,8 @@ export const templates = {
       elements: [
         {
           id: uuidv4(),
-          type: 'shape',
-          role: 'decoration',
-          shapeType: 'rectangle',
+          type: 'rectangle',
+          role: 'background',
           left: 340,
           top: 200,
           width: 400,
@@ -200,7 +197,7 @@ export const templates = {
           opacity: 1,
           locked: false,
           fill: '#e5e7eb'
-        } as any,
+        },
         createText('Read the full article\nat architectural.xyz', 100, 700, 48, 'normal', '#111827', 'heading', 880, 'center'),
       ]
     })

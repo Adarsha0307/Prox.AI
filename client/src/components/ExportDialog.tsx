@@ -17,13 +17,13 @@ export const ExportDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => 
       
       switch (type) {
         case 'png':
-          await exportAsImages(project, 'png', false);
+          await exportAsImages(project, { format: 'png' });
           break;
         case 'jpg':
-          await exportAsImages(project, 'jpeg', false);
+          await exportAsImages(project, { format: 'jpeg' });
           break;
         case 'zip':
-          await exportAsImages(project, 'png', true);
+          await exportAsImages(project, { format: 'png', asZip: true });
           break;
         case 'pdf':
           await exportAsPdf(project);

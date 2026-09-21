@@ -92,7 +92,9 @@ export async function restoreProjectBundle(file: File): Promise<RestoreResult> {
         continue;
       }
       const buffer = await zipEntry.async('uint8array');
-      const blob = new Blob([buffer], { type: entry.type ?? 'image/png' });
+      // Copy into an ArrayBuffer-backed view so it is a valid BlobPart under the
+      // stricter ArrayBuffer generics in newer TypeScript libs.
+      const blob = new Blob([new Uint8Array(buffer)], { type: entry.type ?? 'image/png' });
       await saveAsset({
         id: entry.assetId,
         blob,

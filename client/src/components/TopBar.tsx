@@ -1,30 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { useEditorStore } from '../store/editorStore';
-import { useAuthStore } from '../store/authStore';
+import { useAuthStore, type AuthUser } from '../store/authStore';
+import { apiRequest } from '../utils/api';
 import { Undo, Redo, User, LogOut, Cloud } from 'lucide-react';
 import { ExportDialog } from './ExportDialog';
 import { AuthModal } from './AuthModal';
 import { CloudProjectsModal } from './CloudProjectsModal';
 
 export const TopBar: React.FC = () => {
-  const { project, undo, redo, historyIndex, history, isSyncing, lastSyncedAt } = useEditorStore();
+  const { project, undo, redo, historyIndex, history, cloudState, cloudSyncedAt } = useEditorStore();
   const { user, token, logout, setUser } = useAuthStore();
   const [showExport, setShowExport] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [showCloudProjects, setShowCloudProjects] = useState(false);
 
-  // Auto-login if token exists
+  // Auto-login if a stored token is still valid
   useEffect(() => {
     if (token && !user) {
-      fetch('http://localhost:3001/auth/me', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.user) setUser(data.user);
+      void apiRequest<{ user: AuthUser }>('/auth/me', { token }).then((result) => {
+        if (result.ok) setUser(result.data.user);
         else logout();
-      })
-      .catch(() => logout());
+      });
     }
   }, [token, user, setUser, logout]);
 
@@ -40,8 +36,14 @@ export const TopBar: React.FC = () => {
         {/* Sync Status */}
         {user && (
           <div className="ml-4 flex items-center gap-2 text-xs text-neutral-400">
-            <Cloud size={14} className={isSyncing ? "text-emerald-500 animate-pulse" : "text-neutral-500"} />
-            {isSyncing ? 'Syncing...' : lastSyncedAt ? 'Saved to cloud' : 'Offline'}
+            <Cloud size={14} className={cloudState === 'syncing' ? "text-emerald-500 animate-pulse" : "text-neutral-500"} />
+            {cloudState === 'syncing'
+              ? 'Syncing...'
+              : cloudState === 'synced' && cloudSyncedAt
+                ? 'Saved to cloud'
+                : cloudState === 'conflict'
+                  ? 'Conflict detected'
+                  : 'Offline'}
           </div>
         )}
       </div>
