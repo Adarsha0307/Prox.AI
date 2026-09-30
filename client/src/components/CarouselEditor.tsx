@@ -10,6 +10,8 @@ import { SlideStrip } from './SlideStrip';
 import { CanvasArea } from './CanvasArea';
 import { MobilePropertySheet } from './MobilePropertySheet';
 
+import { CreationWizard } from './CreationWizard';
+
 const SYNC_CHANNEL = 'carousel_editor_sync';
 
 export const CarouselEditor: React.FC = () => {
@@ -179,6 +181,7 @@ export const CarouselEditor: React.FC = () => {
       </div>
 
       <SlideStrip />
+      <CreationWizard />
     </div>
   );
 };

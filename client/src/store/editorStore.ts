@@ -427,10 +427,14 @@ export const useEditorStore = create<EditorState>((set, get) => {
       }
 
       if (newSlides.length > 0) {
-        withProject((project) => ({
-          ...project,
-          slides: [...project.slides, ...newSlides],
-        }));
+        withProject((project) => {
+          const isFresh = project.slides.length === 1 && project.slides[0].elements.length === 0;
+          return {
+            ...project,
+            slides: isFresh ? newSlides : [...project.slides, ...newSlides],
+          };
+        });
+        set({ activeSlideId: newSlides[0].id, activeElementIds: [] });
         commit('immediate');
       }
     },

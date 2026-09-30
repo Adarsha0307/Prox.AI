@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useEditorStore } from '../store/editorStore';
+import { useWizardStore } from '../store/wizardStore';
 import { useAuthStore, type AuthUser } from '../store/authStore';
 import { apiRequest } from '../utils/api';
-import { Undo, Redo, User, LogOut, Cloud, Save, Settings, Coins, Activity } from 'lucide-react';
+import { Undo, Redo, User, LogOut, Cloud, Save, Settings, Coins, Activity, Wand2 } from 'lucide-react';
 import { ExportDialog } from './ExportDialog';
 import { AuthModal } from './AuthModal';
 import { CloudProjectsModal } from './CloudProjectsModal';
@@ -12,6 +13,7 @@ import { useLayoutStore } from '../store/layoutStore';
 
 export const TopBar: React.FC = () => {
   const { project, activeSlideId, undo, redo, historyIndex, history, cloudState, cloudSyncedAt } = useEditorStore();
+  const setWizardOpen = useWizardStore((state) => state.setOpen);
   const { saveLayout } = useLayoutStore();
   const { user, token, logout, setUser } = useAuthStore();
   const [showExport, setShowExport] = useState(false);
@@ -55,6 +57,15 @@ export const TopBar: React.FC = () => {
       </div>
 
       <div className="flex items-center gap-3">
+        <button
+          onClick={() => setWizardOpen(true)}
+          className="bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 px-3 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-2 border border-emerald-500/30"
+        >
+          <Wand2 size={14} /> New Project
+        </button>
+
+        <div className="w-px h-6 bg-neutral-800 mx-1" />
+
         <div className="flex items-center gap-1 bg-neutral-800 rounded p-1">
           <button
             onClick={undo}
