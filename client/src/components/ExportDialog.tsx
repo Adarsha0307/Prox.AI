@@ -1,12 +1,17 @@
-import React, { useState } from 'react';
-import { Download, FileImage, FileText, FileArchive, X } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Download, FileImage, FileText, FileArchive, X, Upload } from 'lucide-react';
 import { useEditorStore } from '../store/editorStore';
 import { exportAsImages, exportAsPdf, exportAsPptx, exportAsBackup } from '../utils/export';
+import { importBackup, importProjectJson } from '../utils/importBackup';
 
 export const ExportDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const project = useEditorStore(state => state.project);
   const [isExporting, setIsExporting] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [error, setError] = useState('');
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const loadProject = useEditorStore(state => state.loadProject);
+  const setStatusMessage = useEditorStore(state => state.setStatusMessage);
 
   if (!project) return null;
 
@@ -126,6 +131,51 @@ export const ExportDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                 <div className="text-xs text-neutral-400">A full JSON backup file (.prox) to restore later.</div>
               </div>
             </button>
+
+            <div className="border-t border-neutral-700 pt-3 mt-3">
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".prox,.json"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setIsImporting(true);
+                  setError('');
+                  try {
+                    if (file.name.endsWith('.prox')) {
+                      const result = await importBackup(file);
+                      const load = loadProject(result.project, 'import');
+                      if (!load.ok) throw new Error(load.errors?.join(', ') || 'Failed to load project');
+                      setStatusMessage(`Restored project with ${result.assetsRestored} asset(s).`);
+                    } else {
+                      const project = await importProjectJson(file);
+                      const load = loadProject(project, 'import');
+                      if (!load.ok) throw new Error(load.errors?.join(', ') || 'Failed to load project');
+                      setStatusMessage('Project imported successfully.');
+                    }
+                    onClose();
+                  } catch (err: any) {
+                    setError(err.message || 'Import failed.');
+                  } finally {
+                    setIsImporting(false);
+                    if (importInputRef.current) importInputRef.current.value = '';
+                  }
+                }}
+              />
+              <button
+                onClick={() => importInputRef.current?.click()}
+                disabled={isExporting || isImporting}
+                className="w-full flex items-center gap-3 p-3 bg-neutral-800 hover:bg-neutral-700 rounded-lg text-left transition-colors border border-dashed border-neutral-600 hover:border-emerald-500 disabled:opacity-50"
+              >
+                <Upload className="text-cyan-400" size={24} />
+                <div>
+                  <div className="text-sm font-medium text-white">Import Project</div>
+                  <div className="text-xs text-neutral-400">Restore from a .prox backup or .json file.</div>
+                </div>
+              </button>
+            </div>
           </div>
         </div>
 

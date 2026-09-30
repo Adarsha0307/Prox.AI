@@ -20,6 +20,7 @@ import { extractUrl } from './utils/extractUrl';
 import { generateOutlineLive, generateOutlineMock, generateUUID, generateImageLive } from './utils/aiAdapter.js';
 
 const ENABLE_PLATFORM_FUNDING = process.env.ENABLE_PLATFORM_FUNDING === 'true';
+const ENABLE_MOCK_AI = process.env.MOCK_AI_PROVIDER === 'true';
 
 const upload = multer({ 
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
@@ -689,9 +690,66 @@ app.post('/api/generate/outline', authenticate, async (req: AuthRequest, res) =>
     const platformKey = process.env.OPENAI_API_KEY || '';
     const keyToUse = byokKey || platformKey;
 
-    const fullPrompt = `Topic: ${topic}\nSource Text: ${sourceText || 'None'}\nResearch Mode: ${researchMode || 'general'}\nPlease output an outline...`;
-    
-    // We have a BYOK key or platform key. Call live adapter.
+    // If no live key is available, and mock mode is enabled, use the mock adapter.
+    if (!keyToUse && ENABLE_MOCK_AI) {
+      const mockResult = await generateOutlineMock(topic || sourceText || 'untitled');
+
+      await db.insert(usageLogs).values({
+        id: generateUUID(),
+        userId: user.id,
+        operation: 'outline',
+        provider: mockResult.provider,
+        model: mockResult.model,
+        fundingSource: 'mock',
+        executionMode: 'mock',
+        status: 'success',
+        inputTokens: 0,
+        outputTokens: 0,
+        platformCreditsReserved: 0,
+        platformCreditsCharged: 0,
+      });
+
+      // Parse mock content into slide structure
+      const sections = mockResult.content.split(/^## /m).filter(Boolean);
+      const slides = sections.map((section, i) => {
+        const lines = section.trim().split('\n');
+        const heading = lines[0]?.replace(/^#+\s*/, '') || `Slide ${i + 1}`;
+        const body = lines.slice(1).join('\n').trim();
+        return {
+          layout: i === 0 ? 'cover' : 'explanation',
+          content: { heading, body },
+        };
+      });
+
+      return res.json({ slides: slides.length > 0 ? slides : [
+        { layout: 'cover', content: { heading: topic?.toUpperCase() || 'GENERATED OUTLINE', body: 'Mock-generated content' } },
+        { layout: 'explanation', content: { heading: 'Details', body: mockResult.content } },
+      ]});
+    }
+
+    if (!keyToUse) {
+      return res.status(402).json({
+        code: 'no_api_key',
+        error: 'No API key available. Set OPENAI_API_KEY, enable BYOK, or set MOCK_AI_PROVIDER=true.',
+      });
+    }
+
+    const fullPrompt = `You are a carousel slide outline generator. Create a structured outline for the following topic.
+
+Topic: ${topic || '(from source text)'}
+${sourceText ? `Source Text: ${sourceText.slice(0, 3000)}` : ''}
+Research Mode: ${researchMode || 'general'}
+
+Generate 3-6 concise slide outlines. Each slide should have a clear heading and a brief body paragraph (2-3 sentences max). The first slide should be an attention-grabbing cover. The last slide should be a closing/CTA.
+
+Output format (plain text, sections separated by ## headings):
+## Slide Title
+Body text for this slide.
+
+## Next Slide Title
+Body text for next slide.`;
+
+    // Call live adapter with the key.
     const result = await generateOutlineLive(fullPrompt, keyToUse);
 
     if ('code' in result) {
@@ -717,29 +775,30 @@ app.post('/api/generate/outline', authenticate, async (req: AuthRequest, res) =>
       platformCreditsCharged: byokKey ? 0 : 1,
     });
 
-    // Parse the output (for now we fake the parsing into slides structure)
-    // The prompt isn't strictly formatted to return our exact JSON yet since we didn't give it a full schema prompt.
-    // For milestone I, we just return the raw text wrapped in a slide so the user can see it works.
-    
-    const title = topic ? topic.toUpperCase() : 'GENERATED OUTLINE';
-    const sub = sourceText ? 'Generated from provided source constraints.' : 'A comprehensive guide.';
+    // Parse the AI output into individual slides. The prompt asks for ## headings
+    // so we split on those. If the model doesn't produce headings, fall back to
+    // a cover + single explanation slide.
+    const sections = result.content.split(/^## /m).filter(Boolean);
+    let slides: { layout: string; content: { heading: string; body: string } }[];
 
-    const slides = [
-      {
-        layout: 'cover',
-        content: {
-          heading: title,
-          body: sub,
-        },
-      },
-      {
-        layout: 'explanation',
-        content: {
-          heading: 'Generated Outline',
-          body: result.content,
-        },
-      }
-    ];
+    if (sections.length >= 2) {
+      slides = sections.map((section, i) => {
+        const lines = section.trim().split('\n');
+        const heading = lines[0]?.replace(/^#+\s*/, '') || `Slide ${i + 1}`;
+        const body = lines.slice(1).join('\n').trim();
+        return {
+          layout: i === 0 ? 'cover' : i === sections.length - 1 ? 'closing' : 'explanation',
+          content: { heading, body },
+        };
+      });
+    } else {
+      // Fallback: wrap entire response in cover + explanation
+      const title = topic ? topic.toUpperCase() : 'GENERATED OUTLINE';
+      slides = [
+        { layout: 'cover', content: { heading: title, body: sourceText ? 'Generated from source material.' : 'A comprehensive guide.' } },
+        { layout: 'explanation', content: { heading: 'Generated Outline', body: result.content } },
+      ];
+    }
 
     return res.json({ slides });
   } catch (err) {
