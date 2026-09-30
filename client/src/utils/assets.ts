@@ -1,5 +1,25 @@
 import { loadAsset } from './db';
 import type { ImageElement, ProjectDocument, Slide } from '../types/schema';
+import { useAuthStore } from '../store/authStore';
+import { API_BASE } from './api';
+
+/** True for any /uploads/* path served by the Prox API. */
+export function isServerUploadPath(src: string | undefined): src is string {
+  return typeof src === 'string' && src.startsWith('/uploads/');
+}
+
+/**
+ * Server-hosted uploads (/uploads/*) require an owner token (D-03). Returns an
+ * absolute URL with the current session token attached, or null when the
+ * header/path cannot be reached this way. Callers that need the raw path (e.g.
+ * uploading) should use the value as-is.
+ */
+export function tokenizedAssetUrl(src: string): string | null {
+  if (!isServerUploadPath(src)) return null;
+  const token = useAuthStore.getState().token;
+  const separator = src.includes('?') ? '&' : '?';
+  return token ? `${API_BASE}${src}${separator}token=${encodeURIComponent(token)}` : null;
+}
 
 /**
  * Uploaded images live in IndexedDB. Rendered surfaces (canvas, export) need an
@@ -65,7 +85,14 @@ export async function resolveElementImageSrc(element: ImageElement): Promise<str
     const url = await resolveAssetUrl(element.assetId);
     if (url) return url;
   }
-  if (isExternalImageUrl(element.src)) return element.src;
+  if (isExternalImageUrl(element.src)) {
+    // Server-hosted uploads need the owner token attached; without it the
+    // canvas/renderer would 401 on reload and exports would rasterize a
+    // missing image (D-04).
+    const tokenized = tokenizedAssetUrl(element.src);
+    if (tokenized) return tokenized;
+    return element.src;
+  }
   return null;
 }
 

@@ -68,9 +68,17 @@ export function isIndexedDbAvailable(): boolean {
 
 export async function saveProject(project: ProjectDocument): Promise<void> {
   try {
+    // Enforce 20MB safety limit on project size (approximated by JSON string length)
+    const jsonStr = JSON.stringify(project);
+    const sizeMB = jsonStr.length / (1024 * 1024);
+    if (sizeMB > 20) {
+      throw new StorageFullError(`Project size (${sizeMB.toFixed(1)}MB) exceeds the 20MB limit. Remove some images to save.`);
+    }
+
     const db = await initDB();
     await db.put(PROJECTS_STORE, project);
   } catch (error) {
+    if (error instanceof StorageFullError) throw error;
     // Never swallow failures: the UI must not show "Saved" when the write failed.
     if (isQuotaError(error)) throw new StorageFullError();
     throw new StorageUnavailableError(

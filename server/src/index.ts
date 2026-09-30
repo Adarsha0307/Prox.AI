@@ -2,9 +2,9 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
-import { eq } from 'drizzle-orm';
+import { eq, sql, desc } from 'drizzle-orm';
 import { db } from './db';
-import { projects, users } from './schema';
+import { projects, users, usageLogs } from './schema';
 import { generateToken, verifyToken, type TokenPayload } from './utils/auth';
 import {
   readRevision,
@@ -13,9 +13,57 @@ import {
   validateRegisterBody,
   validateVerificationBody,
 } from './utils/validate';
+import multer from 'multer';
+import path from 'path';
+import { extractDocument } from './utils/extractDocument';
+import { extractUrl } from './utils/extractUrl';
+import { generateOutlineLive, generateOutlineMock, generateUUID, generateImageLive } from './utils/aiAdapter.js';
+
+const ENABLE_PLATFORM_FUNDING = process.env.ENABLE_PLATFORM_FUNDING === 'true';
+
+const upload = multer({ 
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+});
+
+const imageUpload = multer({
+  dest: 'uploads/',
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+});
 
 const app = express();
 const isProduction = process.env.NODE_ENV === 'production';
+
+import fs from 'fs';
+import imageSize from 'image-size';
+
+// Securely serve temporary uploaded images
+app.get('/uploads/:filename', (req, res) => {
+  const { filename } = req.params;
+  const token = req.query.token as string;
+  if (!token) {
+    return res.status(401).json({ error: 'Unauthorized: missing token' });
+  }
+
+  const payload = verifyToken(token);
+  if (!payload) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  // Enforce ownership: filename must contain `-${payload.id}-`
+  if (!filename.includes(`-${payload.id}-`)) {
+    return res.status(403).json({ error: 'Forbidden: you do not own this preview' });
+  }
+
+  // Prevent directory traversal
+  const normalizedPath = path.normalize(filename).replace(/^(\.\.(\/|\\|$))+/, '');
+  const filePath = path.join(__dirname, '../uploads', normalizedPath);
+  
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Preview expired or not found' });
+  }
+
+  return res.sendFile(filePath);
+});
 
 // --- CORS -------------------------------------------------------------------
 // Bearer tokens are used (no cookies), so requests are not CSRF-prone, but a
@@ -167,7 +215,7 @@ app.post(
           verificationCode: code,
           verificationCodeExpiresAt: expiresAt,
         })
-        .returning({ id: users.id, email: users.email, name: users.name })
+        .returning({ id: users.id, email: users.email, name: users.name, credits: users.credits })
         .get();
 
       logMockVerificationEmail(email, code);
@@ -211,7 +259,7 @@ app.post(
       const token = generateToken({ id: user.id, email: user.email });
 
       return res.json({
-        user: { id: user.id, email: user.email, name: user.name },
+        user: { id: user.id, email: user.email, name: user.name, credits: user.credits },
         token,
       });
     } catch (err) {
@@ -229,20 +277,22 @@ app.post(
     const { email, code } = parsed.value;
 
     try {
-      const user = db.select().from(users).where(eq(users.email, email)).get();
-      if (!user) {
-        return res.status(400).json({ error: 'User not found' });
-      }
-
-      if (user.isVerified) {
-        return res.status(400).json({ error: 'Email already verified' });
-      }
-
-      if (user.verificationCode !== code) {
+      const existingUser = db.select().from(users).where(eq(users.email, email)).get();
+      if (!existingUser) {
+        console.log('verify-email: user not found', email);
         return res.status(400).json({ error: 'Invalid verification code' });
       }
 
-      if (!user.verificationCodeExpiresAt || new Date() > new Date(user.verificationCodeExpiresAt)) {
+      if (existingUser.isVerified) {
+        return res.status(400).json({ error: 'Email already verified' });
+      }
+
+      if (existingUser.verificationCode !== code) {
+        console.log('verify-email: code mismatch', { expected: existingUser.verificationCode, actual: code });
+        return res.status(400).json({ error: 'Invalid verification code' });
+      }
+
+      if (!existingUser.verificationCodeExpiresAt || new Date() > new Date(existingUser.verificationCodeExpiresAt)) {
         return res
           .status(400)
           .json({ error: 'Verification code has expired. Please register again to get a new code.' });
@@ -252,8 +302,8 @@ app.post(
       const updatedUser = db
         .update(users)
         .set({ isVerified: true, verificationCode: null, verificationCodeExpiresAt: null })
-        .where(eq(users.id, user.id))
-        .returning({ id: users.id, email: users.email, name: users.name })
+        .where(eq(users.id, existingUser.id))
+        .returning({ id: users.id, email: users.email, name: users.name, credits: users.credits })
         .get();
 
       const token = generateToken({ id: updatedUser.id, email: updatedUser.email });
@@ -273,7 +323,7 @@ app.get('/auth/me', authenticate, async (req, res) => {
   try {
     const userId = requireUserId(req as AuthRequest);
     const user = db
-      .select({ id: users.id, email: users.email, name: users.name })
+      .select({ id: users.id, email: users.email, name: users.name, credits: users.credits })
       .from(users)
       .where(eq(users.id, userId))
       .get();
@@ -281,6 +331,22 @@ app.get('/auth/me', authenticate, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     return res.json({ user });
+  } catch (err) {
+    return internalError(res, err);
+  }
+});
+
+app.get('/api/usage', authenticate, async (req, res) => {
+  try {
+    const userId = requireUserId(req as AuthRequest);
+    const logs = db
+      .select()
+      .from(usageLogs)
+      .where(eq(usageLogs.userId, userId))
+      .orderBy(desc(usageLogs.createdAt))
+      .limit(50)
+      .all();
+    return res.json({ usage: logs });
   } catch (err) {
     return internalError(res, err);
   }
@@ -429,6 +495,258 @@ app.delete('/api/projects/:id', authenticate, async (req, res) => {
   }
 });
 
+// --- EXTRACT ROUTES -----------------------------------------------------------
+
+app.post('/api/extract/document', authenticate, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    const text = await extractDocument(req.file.buffer, req.file.mimetype);
+    return res.json({ text, filename: req.file.originalname, type: 'document' });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    return res.status(400).json({ error: msg });
+  }
+});
+
+app.post('/api/extract/url', authenticate, async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ error: 'URL is required' });
+    }
+    const text = await extractUrl(url);
+    return res.json({ text, url, type: 'url' });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error';
+    return res.status(400).json({ error: msg });
+  }
+});
+
+// --- IMAGE ROUTES (PHASE H) -------------------------------------------------
+
+app.post('/api/images/upload', authenticate, imageUpload.single('file'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No image uploaded' });
+  }
+  
+  const filePath = req.file.path;
+  
+  try {
+    const buffer = await fs.promises.readFile(filePath);
+    const dimensions = imageSize(buffer);
+    if (!dimensions || !dimensions.width || !dimensions.height) {
+      throw new Error('Invalid image dimensions');
+    }
+    
+    const allowedTypes = ['jpg', 'png', 'webp', 'jpeg'];
+    if (!dimensions.type || !allowedTypes.includes(dimensions.type)) {
+      throw new Error('Unsupported image format');
+    }
+
+    const userId = (req as AuthRequest).user!.id;
+    const secureFilename = `up-${userId}-${Date.now()}-${generateUUID()}.${dimensions.type}`;
+    const secureFilePath = path.join(__dirname, '../uploads', secureFilename);
+    
+    await fs.promises.rename(filePath, secureFilePath);
+
+    const imageUrl = `/uploads/${secureFilename}`;
+    return res.json({ url: imageUrl, filename: req.file.originalname, width: dimensions.width, height: dimensions.height });
+  } catch (err) {
+    await fs.promises.unlink(filePath).catch(() => {});
+    return res.status(400).json({ error: 'Invalid, corrupt, or unsupported image file' });
+  }
+});
+
+app.post('/api/generate/image', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const { prompt } = req.body;
+    if (!prompt) {
+      return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    const byokKey = req.header('X-Provider-Key');
+    const user = (req as AuthRequest).user as TokenPayload;
+
+    if (!byokKey) {
+      if (!ENABLE_PLATFORM_FUNDING) {
+        return res.status(402).json({ 
+          code: 'platform_funding_disabled', 
+          error: 'Platform-funded generation is currently disabled. Please configure your own API key in Settings.' 
+        });
+      }
+
+      const cost = 4;
+      const deduction = db.update(users)
+        .set({ credits: sql`${users.credits} - ${cost}` })
+        .where(sql`${users.id} = ${user.id} AND ${users.credits} >= ${cost}`)
+        .run();
+
+      if (deduction.changes === 0) {
+        return res.status(402).json({ code: 'insufficient_platform_credits', error: 'Insufficient credits.' });
+      }
+    }
+
+    const platformKey = process.env.OPENAI_API_KEY || '';
+    const keyToUse = byokKey || platformKey;
+
+    const result = await generateImageLive(prompt, keyToUse);
+
+    if ('code' in result) {
+      if (!byokKey && ENABLE_PLATFORM_FUNDING) {
+        db.update(users).set({ credits: sql`${users.credits} + 4` }).where(eq(users.id, user.id)).run();
+      }
+      return res.status(result.status).json({ code: result.code, error: result.message });
+    }
+
+    try {
+      const getPricing = (model: string): { cost: number | null, currency: string, version: string, status: string } => {
+        if (model.includes('dall-e-3')) return { cost: 40000, currency: 'USD', version: '2024-04', status: 'estimated' };
+        return { cost: null, currency: 'USD', version: 'unknown', status: 'unknown' };
+      };
+      
+      const pricing = getPricing(result.model);
+
+      await db.insert(usageLogs).values({
+        id: generateUUID(),
+        userId: user.id,
+        operation: 'image',
+        provider: result.provider,
+        model: result.model,
+        fundingSource: byokKey ? 'byok' : 'platform',
+        executionMode: 'live',
+        status: 'success',
+        inputTokens: 0,
+        outputTokens: 0,
+        imageCount: 1,
+        platformCreditsReserved: 0,
+        platformCreditsCharged: byokKey ? 0 : 4,
+        estimatedCost: pricing.cost,
+        costStatus: pricing.status,
+        currency: pricing.currency,
+        pricingVersion: pricing.version,
+      }).catch(err => console.error('[usage-log] DB insert rejection:', err));
+    } catch (logErr) {
+      console.error('[usage-log] Failed to log image generation:', logErr);
+    }
+
+    // Download the image to server so it survives reloads
+    const imageRes = await fetch(result.url);
+    if (!imageRes.ok || !imageRes.body) {
+      throw new Error('Failed to download generated image');
+    }
+    const filename = `gen-${user.id}-${Date.now()}-${generateUUID()}.png`;
+    const dest = path.join(__dirname, '../uploads', filename);
+    await fs.promises.writeFile(dest, Buffer.from(await imageRes.arrayBuffer()));
+
+    return res.json({ url: `/uploads/${filename}`, filename });
+  } catch (err) {
+    return internalError(res, err);
+  }
+});
+
+// --- GENERATE ROUTES --------------------------------------------------------
+
+app.post('/api/generate/outline', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const { topic, sourceText, researchMode } = req.body;
+    
+    if (researchMode === 'web_research') {
+       return res.status(501).json({ error: 'Web research is not configured. (Platform-funded generation disabled)' });
+    }
+    
+    if (researchMode === 'source_only' && !sourceText) {
+       return res.status(400).json({ error: 'Source-only research mode requires extracted source text.' });
+    }
+
+    if (!topic && !sourceText) {
+      return res.status(400).json({ error: 'Topic or Source Text is required' });
+    }
+
+    const byokKey = req.header('X-Provider-Key');
+    const user = (req as AuthRequest).user as TokenPayload;
+
+    if (!byokKey) {
+      if (!ENABLE_PLATFORM_FUNDING) {
+        return res.status(402).json({ 
+          code: 'platform_funding_disabled', 
+          error: 'Platform-funded generation is currently disabled. Please configure your own API key in Settings.' 
+        });
+      }
+      
+      const cost = 1;
+      const deduction = db.update(users)
+        .set({ credits: sql`${users.credits} - ${cost}` })
+        .where(sql`${users.id} = ${user.id} AND ${users.credits} >= ${cost}`)
+        .run();
+
+      if (deduction.changes === 0) {
+        return res.status(402).json({ code: 'insufficient_platform_credits', error: 'Insufficient credits.' });
+      }
+    }
+
+    const platformKey = process.env.OPENAI_API_KEY || '';
+    const keyToUse = byokKey || platformKey;
+
+    const fullPrompt = `Topic: ${topic}\nSource Text: ${sourceText || 'None'}\nResearch Mode: ${researchMode || 'general'}\nPlease output an outline...`;
+    
+    // We have a BYOK key or platform key. Call live adapter.
+    const result = await generateOutlineLive(fullPrompt, keyToUse);
+
+    if ('code' in result) {
+      if (!byokKey && ENABLE_PLATFORM_FUNDING) {
+        db.update(users).set({ credits: sql`${users.credits} + 1` }).where(eq(users.id, user.id)).run();
+      }
+      return res.status(result.status).json({ code: result.code, error: result.message });
+    }
+
+    // Log usage with 0 platform credits charged
+    await db.insert(usageLogs).values({
+      id: generateUUID(),
+      userId: user.id,
+      operation: 'outline',
+      provider: result.provider,
+      model: result.model,
+      fundingSource: byokKey ? 'byok' : 'platform',
+      executionMode: 'live',
+      status: 'success',
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      platformCreditsReserved: 0,
+      platformCreditsCharged: byokKey ? 0 : 1,
+    });
+
+    // Parse the output (for now we fake the parsing into slides structure)
+    // The prompt isn't strictly formatted to return our exact JSON yet since we didn't give it a full schema prompt.
+    // For milestone I, we just return the raw text wrapped in a slide so the user can see it works.
+    
+    const title = topic ? topic.toUpperCase() : 'GENERATED OUTLINE';
+    const sub = sourceText ? 'Generated from provided source constraints.' : 'A comprehensive guide.';
+
+    const slides = [
+      {
+        layout: 'cover',
+        content: {
+          heading: title,
+          body: sub,
+        },
+      },
+      {
+        layout: 'explanation',
+        content: {
+          heading: 'Generated Outline',
+          body: result.content,
+        },
+      }
+    ];
+
+    return res.json({ slides });
+  } catch (err) {
+    return internalError(res, err);
+  }
+});
+
 // --- Health, fallbacks, and startup ----------------------------------------
 
 app.get('/health', (_req, res) => {
@@ -447,6 +765,27 @@ app.use((err: unknown, _req: express.Request, res: express.Response, next: expre
   }
   return internalError(res, err);
 });
+
+// Periodic cleanup of temporary generated images in /uploads
+const UPLOADS_DIR = path.join(__dirname, '../uploads');
+setInterval(async () => {
+  try {
+    if (!fs.existsSync(UPLOADS_DIR)) return;
+    const files = await fs.promises.readdir(UPLOADS_DIR);
+    const now = Date.now();
+    const MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+    for (const file of files) {
+      if (file === '.gitkeep') continue;
+      const filePath = path.join(UPLOADS_DIR, file);
+      const stats = await fs.promises.stat(filePath);
+      if (stats.isFile() && now - stats.mtimeMs > MAX_AGE_MS) {
+        await fs.promises.unlink(filePath).catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.error('[cleanup] Failed to cleanup uploads:', e);
+  }
+}, 60 * 60 * 1000); // Run hourly
 
 const PORT = Number(process.env.PORT ?? 3001);
 app.listen(PORT, () => {

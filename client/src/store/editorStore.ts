@@ -10,6 +10,8 @@ import {
 } from '../utils/validation';
 import { StorageFullError, saveProject as saveProjectToDb } from '../utils/db';
 import { readImageDimensions } from '../utils/assets';
+import { templates } from '../utils/templates';
+import { validateLayout } from '../utils/layoutValidator';
 
 /** Maximum number of undo steps kept in memory. */
 export const HISTORY_LIMIT = 60;
@@ -47,6 +49,7 @@ interface EditorState {
   setActiveSlide: (slideId: string) => void;
   applyTemplateToSlide: (templateSlide: Slide) => void;
   updateSlideBackground: (slideId: string, background: string) => void;
+  appendGeneratedOutline: (outline: { layout: string; content: Record<string, string> }[], templateFamily: string) => void;
 
   updateTheme: (updates: Partial<ThemeTokens>) => void;
 
@@ -65,6 +68,7 @@ interface EditorState {
   redo: () => void;
   commitHistory: () => void;
   commitSoon: () => void;
+  fixLayout: (options?: { commit?: boolean }) => void;
 
   persistNow: () => Promise<void>;
   setCloudState: (state: CloudState, message?: string | null, syncedAt?: number | null) => void;
@@ -345,15 +349,37 @@ export const useEditorStore = create<EditorState>((set, get) => {
 
       withProject((project) => ({
         ...project,
-        slides: project.slides.map((slide) =>
-          slide.id === targetId
-            ? {
-                ...slide,
-                background: validation.slide.background,
-                elements: validation.slide.elements.map((element) => ({ ...element, id: uuidv4() })),
+        slides: project.slides.map((slide) => {
+          if (slide.id !== targetId) return slide;
+          
+          const availableElements = [...slide.elements];
+
+          const newElements = validation.slide.elements.map((element) => {
+            const next = { ...element, id: uuidv4() };
+            if (next.role) {
+              const matchIdx = availableElements.findIndex(el => el.role === next.role && el.type === next.type);
+              if (matchIdx !== -1) {
+                const saved = availableElements.splice(matchIdx, 1)[0];
+                if (next.type === 'text') {
+                  (next as any).text = (saved as any).text;
+                } else if (next.type === 'image') {
+                  (next as any).src = (saved as any).src;
+                  (next as any).assetId = (saved as any).assetId;
+                }
               }
-            : slide,
-        ),
+            }
+            return next;
+          });
+
+          // Any unmapped elements from the original slide are preserved
+          newElements.push(...availableElements);
+
+          return {
+            ...slide,
+            background: validation.slide.background,
+            elements: newElements,
+          };
+        }),
       }));
       set({
         activeElementIds: [],
@@ -362,6 +388,7 @@ export const useEditorStore = create<EditorState>((set, get) => {
             ? 'Template applied and replaced the previous slide content. Use Undo to restore it.'
             : null,
       });
+      get().fixLayout({ commit: false });
       commit('immediate');
     },
 
@@ -371,6 +398,41 @@ export const useEditorStore = create<EditorState>((set, get) => {
         slides: project.slides.map((slide) => (slide.id === slideId ? { ...slide, background } : slide)),
       }));
       commit('debounced');
+    },
+
+    appendGeneratedOutline: (outline, templateFamily) => {
+      const state = get();
+      if (!state.project) return;
+      
+      const newSlides: Slide[] = [];
+      const family = templates[templateFamily as keyof typeof templates] || templates['minimal'];
+
+      for (const item of outline) {
+        const layoutFn = family[item.layout as keyof typeof family];
+        if (layoutFn && typeof layoutFn === 'function') {
+          const slide: Slide = layoutFn();
+          slide.id = uuidv4();
+          slide.elements = slide.elements.map(el => {
+            const next = { ...el, id: uuidv4() };
+            if (next.type === 'text' && next.role) {
+              const textContent = item.content[next.role];
+              if (textContent) {
+                (next as any).text = textContent;
+              }
+            }
+            return next;
+          });
+          newSlides.push(slide);
+        }
+      }
+
+      if (newSlides.length > 0) {
+        withProject((project) => ({
+          ...project,
+          slides: [...project.slides, ...newSlides],
+        }));
+        commit('immediate');
+      }
     },
 
     updateTheme: (updates) => {
@@ -480,8 +542,6 @@ export const useEditorStore = create<EditorState>((set, get) => {
             elements: slide.elements.map((element) => {
               if (element.id !== elementId) return element;
               const next = { ...element, ...updates } as SlideElement;
-              // Editing a colour directly makes it a local override, so later
-              // theme changes do not silently overwrite the author's choice.
               if ('fill' in updates && !('themeColorKey' in updates) && 'themeColorKey' in next) {
                 delete (next as { themeColorKey?: ThemeColorKey }).themeColorKey;
               }
@@ -545,6 +605,42 @@ export const useEditorStore = create<EditorState>((set, get) => {
         }),
       }));
       commit('immediate');
+    },
+
+    fixLayout: (options?: { commit?: boolean }) => {
+      const state = get();
+      if (!state.project || !state.activeSlideId) return;
+
+      const slideId = state.activeSlideId;
+      const projectDimensions = state.project.dimensions;
+
+      let neededCorrection = false;
+      let issuesFound: string[] = [];
+
+      withProject((project) => ({
+        ...project,
+        slides: project.slides.map((slide) => {
+          if (slide.id !== slideId) return slide;
+          const result = validateLayout(slide.elements, projectDimensions);
+          if (!result.ok && result.correctedElements) {
+            neededCorrection = true;
+            issuesFound = result.issues;
+            return { ...slide, elements: result.correctedElements };
+          } else if (!result.ok && result.issues.length > 0) {
+            // some issues didn't result in auto-correction, like ambiguous overlap
+            neededCorrection = true;
+            issuesFound = result.issues;
+          }
+          return slide;
+        }),
+      }));
+
+      if (neededCorrection) {
+        set({ statusMessage: 'Layout validation: ' + issuesFound.join(' ') });
+        if (options?.commit !== false) commit('immediate');
+      } else {
+        set({ statusMessage: 'Layout looks good!' });
+      }
     },
 
     setActiveElements: (elementIds) => set({ activeElementIds: elementIds }),

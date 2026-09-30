@@ -24,8 +24,16 @@ export const RightPanel: React.FC = () => {
       
       <div className="p-4 overflow-y-auto">
         {!hasSelection || !primaryElement ? (
-          <div className="text-sm text-neutral-500">
-            Select an element to edit its properties.
+          <div className="space-y-4">
+            <div className="text-sm text-neutral-500">
+              Select an element to edit its properties, or fix the slide layout.
+            </div>
+            <button
+              onClick={() => useEditorStore.getState().fixLayout()}
+              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white p-2 rounded text-sm transition-colors shadow-lg"
+            >
+              ✨ Fix Layout
+            </button>
           </div>
         ) : (
           <div className="space-y-4">

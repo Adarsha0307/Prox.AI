@@ -1,17 +1,67 @@
-# AI Carousel Editor
+# Prox: AI Carousel Editor
 
-An AI-assisted carousel creation website built with React, TypeScript, Vite, Tailwind CSS, and Fabric.js.
+An AI-assisted carousel creation platform built with React, TypeScript, Vite, Node.js, and SQLite.
 
 ## Overview
 
-This project is a beginner-friendly tool that supports the entire lifecycle of creating carousels for educational creators, LinkedIn professionals, and others. It allows users to go from idea or source material to an editable outline, AI draft, editable slide designs, manual refinement, and finally, exporting to various formats (Images, PDF, PPTX).
+Prox is a complete tool that supports the entire lifecycle of creating stunning carousels for educational creators, LinkedIn professionals, and marketers. It allows users to go from a raw idea or source material (URL/PDF) to an editable outline, AI-generated draft, manual visual refinement, and finally, exporting to multiple formats.
+
+## Key Features
+
+### 🎨 Visual Editor & Design System
+- **Drag-and-Drop Canvas:** Full WYSIWYG editor for text, images, and shapes.
+- **Template Families & Custom Layouts:** Start with beautiful built-in templates (Minimal, Bold, Playful) or save your own slides as reusable custom layouts.
+- **Smart Theme Engine:** Extract brand colors directly from an uploaded logo or image, and seamlessly propagate theme tokens (colors, typography) across all slides.
+- **Auto-Layout Correction:** Intelligent validation ensures elements stay within safe margins, text doesn't overflow, and overlapping elements are corrected.
+
+### 🤖 AI Generation & Assistance
+- **Content from Anywhere:** Generate cohesive, multi-slide carousels from a simple prompt, a pasted URL, or an uploaded PDF document.
+- **AI Image Generation:** Seamlessly generate contextual slide images using DALL-E 3 directly from the editor.
+- **Bring Your Own Key (BYOK):** Users can plug in their own OpenAI API key for unlimited generation, bypassing platform billing.
+- **Platform Funded Usage:** A robust built-in credit system lets users generate content using platform credits when they don't have their own API key.
+
+### ☁️ Cloud Sync & Persistence
+- **Offline-First Architecture:** Changes are instantly saved locally (IndexedDB) and lazily synced to the cloud.
+- **Conflict Resolution:** Robust multi-device syncing ensures newer cloud revisions gracefully merge with local changes, with visual indicators for sync states.
+- **Authentication:** Secure JWT-based user accounts and workspaces keep projects isolated and private.
+
+### 📤 Exports
+- Export your finished carousels to **PNG** archives, multi-page **PDFs**, and fully editable **PPTX** presentations.
 
 ## Repository Structure
 
-- `client/` - Frontend application (Vite, React, TypeScript, Tailwind CSS, Fabric.js)
-- `server/` - Backend application (Node.js, Express, TypeScript, PostgreSQL)
-- `docs/` - Documentation and specifications
+- `client/` - Frontend application (Vite, React, Zustand, Tailwind CSS, Lucide)
+- `server/` - Backend application (Node.js, Express, Better-SQLite3, Drizzle ORM)
+- `docs/` - Original documentation and implementation plans
 
 ## Getting Started
 
-*(Instructions to run the project locally will be added here once the foundation is fully set up)*
+### Prerequisites
+- Node.js (v18+)
+- npm or pnpm
+
+### Running Locally
+
+1. **Start the Backend:**
+   ```bash
+   cd server
+   npm install
+   cp .env.example .env # Add your OPENAI_API_KEY and AUTH_SECRET
+   npm run dev
+   ```
+
+2. **Start the Frontend:**
+   ```bash
+   cd client
+   npm install
+   npm run dev
+   ```
+
+3. Open `http://localhost:5173` in your browser.
+
+## Running Tests
+Integration tests for the API and billing logic are written in native `node:test`:
+```bash
+cd server
+npm test
+```

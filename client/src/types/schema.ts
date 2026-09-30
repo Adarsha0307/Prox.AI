@@ -15,6 +15,7 @@ export interface BaseElement {
   rotation: number;
   opacity: number;
   locked: boolean;
+  allowOverlap?: boolean;
 }
 
 export interface TextElement extends BaseElement {
@@ -75,10 +76,14 @@ export interface ThemeTokens {
     secondary: string;
     background: string;
     text: string;
+    accent?: string;
   };
   fonts: {
     heading: string;
     body: string;
+  };
+  typography?: {
+    bodySize?: number;
   };
   brand?: {
     logoUrl?: string;

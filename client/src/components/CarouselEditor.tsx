@@ -127,6 +127,10 @@ export const CarouselEditor: React.FC = () => {
       if (current && !cloudSync.isSynced(current)) {
         // Explicit local -> cloud migration for the project that is open.
         void cloudSync.saveNow(current);
+        // The banner is derived from an authentication-token change; there is no
+        // paired event handler to update it from, so writing it here is the
+        // correct place to keep the "upload in progress" notice visible.
+        // oxlint-disable-next-line react/set-state-in-effect
         setBanner(`Signed in as ${user.email}. This project is being uploaded to your account.`);
       }
       hadSessionRef.current = true;
