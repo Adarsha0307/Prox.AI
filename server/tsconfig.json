@@ -7,11 +7,16 @@
 
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
-    "module": "commonjs",
-    "moduleResolution": "node",
+    // NOTE: `moduleResolution: "node"` (node10) was removed in TypeScript 7, which broke
+    // `tsc` and `ts-node`. The server package is CommonJS ("type": "commonjs"), so
+    // `nodenext` emits CommonJS while using the modern resolver.
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "target": "esnext",
     "esModuleInterop": true,
     "types": [],
+    "rootDir": "./src",
+    "outDir": "./dist",
     // For nodejs:
     // "lib": ["esnext"],
     // "types": ["node"],
@@ -42,5 +47,7 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
-  }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }

@@ -4,6 +4,9 @@ build/
 .env
 *.sqlite
 *.sqlite-journal
+*.db
 *.log
 .DS_Store
 temp_*
+server/test/*.db
+server/test.txt

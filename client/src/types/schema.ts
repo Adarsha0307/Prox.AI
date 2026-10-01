@@ -1,6 +1,9 @@
 export type ElementType = 'text' | 'image' | 'rectangle' | 'circle' | 'line';
 export type SemanticRole = 'heading' | 'body' | 'image' | 'footer' | 'background';
 
+/** Theme colours an element can inherit instead of hard-coding a fill. */
+export type ThemeColorKey = 'primary' | 'secondary' | 'background' | 'text';
+
 export interface BaseElement {
   id: string;
   type: ElementType;
@@ -12,6 +15,7 @@ export interface BaseElement {
   rotation: number;
   opacity: number;
   locked: boolean;
+  allowOverlap?: boolean;
 }
 
 export interface TextElement extends BaseElement {
@@ -25,14 +29,26 @@ export interface TextElement extends BaseElement {
   fill: string;
   lineHeight: number;
   charSpacing: number;
+  /**
+   * When set, the element follows the project theme colour. Editing the colour
+   * directly clears this flag so the change survives later theme updates.
+   */
+  themeColorKey?: ThemeColorKey;
 }
 
 export interface ImageElement extends BaseElement {
   type: 'image';
-  src: string; // URL or object URL for local development
+  /**
+   * External URL (http/https/data) for images that live outside the project.
+   * Uploaded images are referenced through `assetId` instead so the document
+   * never stores a temporary object URL.
+   */
+  src?: string;
   assetId?: string;
   cropX?: number;
   cropY?: number;
+  /** 'cover' crops to fill the box, 'contain' letterboxes the image. */
+  fit?: 'cover' | 'contain';
 }
 
 export interface ShapeElement extends BaseElement {
@@ -42,6 +58,7 @@ export interface ShapeElement extends BaseElement {
   strokeWidth?: number;
   rx?: number; // border radius for rect
   ry?: number;
+  themeColorKey?: ThemeColorKey;
 }
 
 export type SlideElement = TextElement | ImageElement | ShapeElement;
@@ -59,10 +76,14 @@ export interface ThemeTokens {
     secondary: string;
     background: string;
     text: string;
+    accent?: string;
   };
   fonts: {
     heading: string;
     body: string;
+  };
+  typography?: {
+    bodySize?: number;
   };
   brand?: {
     logoUrl?: string;

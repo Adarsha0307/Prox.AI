@@ -7,8 +7,8 @@
 - **State Management:** Centralized editor-state store (e.g., Zustand or Context API)
 - **Local Persistence:** IndexedDB (for device projects and recovery)
 - **Backend:** Node.js, Express, TypeScript
-- **Database:** PostgreSQL (for account and project records)
-- **Storage:** Private object storage for assets
+- **Database:** SQLite (Drizzle ORM) for local runnability and zero-config deployment.
+- **Storage:** Local filesystem (uploads) or private object storage.
 
 ## Application Architecture
 

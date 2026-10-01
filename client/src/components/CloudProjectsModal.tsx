@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Cloud, Clock } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useEditorStore } from '../store/editorStore';
-
-const API_URL = 'http://localhost:3001';
+import { apiUrl } from '../utils/api';
 
 export const CloudProjectsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const { token } = useAuthStore();
@@ -13,7 +12,7 @@ export const CloudProjectsModal: React.FC<{ onClose: () => void }> = ({ onClose 
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetch(`${API_URL}/api/projects`, {
+    fetch(apiUrl('/api/projects'), {
       headers: { 'Authorization': `Bearer ${token}` }
     })
     .then(res => res.json())

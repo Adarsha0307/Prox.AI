@@ -1,11 +1,16 @@
 import React, { useState } from 'react';
-import { Type, LayoutTemplate, Image, Square, Palette } from 'lucide-react';
+import { Type, LayoutTemplate, Image, Square, Palette, Wand2 } from 'lucide-react';
 import { useEditorStore } from '../store/editorStore';
 import { templates } from '../utils/templates';
+import { AIPanel } from './AIPanel';
+import { ImagePanel } from './ImagePanel';
+import { ThemePanel } from './ThemePanel';
+import { useLayoutStore } from '../store/layoutStore';
 
 export const LeftPanel: React.FC = () => {
-  const { project, addElement, applyTemplateToSlide } = useEditorStore();
-  const [activeTab, setActiveTab] = useState<'text' | 'templates' | 'assets' | 'shapes' | 'brand'>('templates');
+  const { addElement, applyTemplateToSlide } = useEditorStore();
+  const { customLayouts, deleteLayout } = useLayoutStore();
+  const [activeTab, setActiveTab] = useState<'text' | 'templates' | 'assets' | 'shapes' | 'brand' | 'ai'>('templates');
   const [selectedFamily, setSelectedFamily] = useState<keyof typeof templates>('minimal');
 
   const handleAddText = () => {
@@ -58,6 +63,9 @@ export const LeftPanel: React.FC = () => {
         <button onClick={() => setActiveTab('brand')} className={`p-3 rounded-xl transition-colors ${activeTab === 'brand' ? 'bg-emerald-600 text-white' : 'text-neutral-400 hover:text-white hover:bg-neutral-800'}`}>
           <Palette size={20} />
         </button>
+        <button onClick={() => setActiveTab('ai')} className={`p-3 rounded-xl transition-colors ${activeTab === 'ai' ? 'bg-emerald-600 text-white' : 'text-neutral-400 hover:text-white hover:bg-neutral-800'}`}>
+          <Wand2 size={20} />
+        </button>
       </div>
 
       <div className="flex-1 hidden lg:flex flex-col overflow-y-auto">
@@ -101,14 +109,61 @@ export const LeftPanel: React.FC = () => {
                   const templateFn = templates[randomFamily][randomLayout] as () => any;
                   applyTemplateToSlide(templateFn());
                 }}
-                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white p-3 rounded text-sm transition-colors shadow-lg"
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white p-3 rounded text-sm transition-colors shadow-lg mb-2"
               >
                 ✨ Suggest Alternative Layout
               </button>
+              
+              <button
+                onClick={() => {
+                  const state = useEditorStore.getState();
+                  const activeSlide = state.project?.slides.find(s => s.id === state.activeSlideId);
+                  if (activeSlide) {
+                    const name = prompt('Enter a name for this custom layout:');
+                    if (name) {
+                      useLayoutStore.getState().saveLayout(name, activeSlide);
+                    }
+                  }
+                }}
+                className="w-full bg-neutral-700 hover:bg-neutral-600 text-white p-3 rounded text-sm transition-colors"
+              >
+                Save Current Slide as Layout
+              </button>
             </div>
             
-            <p className="text-xs text-neutral-500 mt-4 italic">
-              Warning: Applying a template will overwrite the current slide's content.
+            {customLayouts.length > 0 && (
+              <div className="mt-6 pt-6 border-t border-neutral-800">
+                <label className="text-xs text-neutral-500 mb-2 block">My Custom Layouts</label>
+                <div className="space-y-2">
+                  {customLayouts.map(layout => (
+                    <div key={layout.id} className="flex gap-2">
+                      <button 
+                        onClick={() => {
+                          const layoutCopy = JSON.parse(JSON.stringify(layout.slide));
+                          // Regenerate IDs to ensure element independence
+                          layoutCopy.elements = layoutCopy.elements.map((el: any) => ({ ...el, id: crypto.randomUUID() }));
+                          applyTemplateToSlide(layoutCopy);
+                        }}
+                        className="flex-1 text-left bg-neutral-800 p-3 rounded hover:bg-neutral-700 transition-colors text-sm border border-transparent hover:border-neutral-600 truncate"
+                        title={layout.name}
+                      >
+                        {layout.name}
+                      </button>
+                      <button 
+                        onClick={() => deleteLayout(layout.id)}
+                        className="bg-neutral-800 p-3 rounded hover:bg-red-500/20 hover:text-red-400 text-neutral-500 transition-colors"
+                        title="Delete Layout"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            <p className="text-xs text-neutral-500 mt-6 italic leading-relaxed">
+              Warning: Applying a template will overwrite the current slide's content. Use Undo (Ctrl+Z) if you make a mistake.
             </p>
           </div>
         )}
@@ -123,50 +178,91 @@ export const LeftPanel: React.FC = () => {
         )}
 
         {activeTab === 'assets' && (
-          <div className="p-4 text-sm text-neutral-500">Asset library coming soon.</div>
+          <ImagePanel />
         )}
         
         {activeTab === 'shapes' && (
-          <div className="p-4 text-sm text-neutral-500">Shapes coming soon.</div>
+          <div className="p-4">
+            <h2 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider mb-4">Shapes</h2>
+            <div className="space-y-2">
+              <button
+                onClick={() => addElement({
+                  id: crypto.randomUUID(),
+                  type: 'rectangle',
+                  role: 'body',
+                  left: 100,
+                  top: 100,
+                  width: 300,
+                  height: 200,
+                  rotation: 0,
+                  opacity: 1,
+                  locked: false,
+                  fill: '#4ade80',
+                  stroke: '#000000',
+                  strokeWidth: 0,
+                  rx: 0,
+                  ry: 0,
+                })}
+                className="w-full flex items-center gap-3 bg-neutral-800 p-3 rounded hover:bg-neutral-700 transition-colors text-sm border border-transparent hover:border-neutral-600"
+              >
+                <span className="w-5 h-4 bg-emerald-500 rounded-sm shrink-0" />
+                Rectangle
+              </button>
+              <button
+                onClick={() => addElement({
+                  id: crypto.randomUUID(),
+                  type: 'circle',
+                  role: 'body',
+                  left: 100,
+                  top: 100,
+                  width: 200,
+                  height: 200,
+                  rotation: 0,
+                  opacity: 1,
+                  locked: false,
+                  fill: '#60a5fa',
+                  stroke: '#000000',
+                  strokeWidth: 0,
+                })}
+                className="w-full flex items-center gap-3 bg-neutral-800 p-3 rounded hover:bg-neutral-700 transition-colors text-sm border border-transparent hover:border-neutral-600"
+              >
+                <span className="w-5 h-5 bg-blue-400 rounded-full shrink-0" />
+                Circle
+              </button>
+              <button
+                onClick={() => addElement({
+                  id: crypto.randomUUID(),
+                  type: 'line',
+                  role: 'body',
+                  left: 100,
+                  top: 300,
+                  width: 400,
+                  height: 4,
+                  rotation: 0,
+                  opacity: 1,
+                  locked: false,
+                  fill: '#ffffff',
+                  stroke: '#ffffff',
+                  strokeWidth: 3,
+                })}
+                className="w-full flex items-center gap-3 bg-neutral-800 p-3 rounded hover:bg-neutral-700 transition-colors text-sm border border-transparent hover:border-neutral-600"
+              >
+                <span className="w-5 h-0.5 bg-white shrink-0" />
+                Line
+              </button>
+            </div>
+            <p className="text-xs text-neutral-500 mt-4 italic leading-relaxed">
+              Click any shape to add it to the current slide. Use the right panel to change fill, stroke, and dimensions.
+            </p>
+          </div>
         )}
         
         {activeTab === 'brand' && (
-          <div className="p-4 flex-1">
-            <h2 className="text-sm font-semibold text-neutral-400 uppercase tracking-wider mb-4">Brand Kit</h2>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="text-xs text-neutral-500 mb-1 block">Primary Color</label>
-                <input 
-                  type="color" 
-                  value={project?.theme.colors.primary || '#000000'} 
-                  onChange={(e) => useEditorStore.getState().updateTheme({ colors: { ...project!.theme.colors, primary: e.target.value } })}
-                  className="w-full h-8 cursor-pointer rounded"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs text-neutral-500 mb-1 block">Social Handle</label>
-                <input 
-                  type="text" 
-                  placeholder="@yourhandle"
-                  value={project?.theme.brand?.handle || ''}
-                  onChange={(e) => useEditorStore.getState().updateTheme({ brand: { ...project!.theme.brand, handle: e.target.value } })}
-                  className="w-full bg-neutral-800 text-white p-2 rounded text-sm border border-neutral-700 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs text-neutral-500 mb-1 block">Brand Voice (AI System Prompt)</label>
-                <textarea 
-                  placeholder="e.g. Professional but witty..."
-                  value={project?.theme.brand?.voice || ''}
-                  onChange={(e) => useEditorStore.getState().updateTheme({ brand: { ...project!.theme.brand, voice: e.target.value } })}
-                  className="w-full bg-neutral-800 text-white p-2 rounded text-sm border border-neutral-700 outline-none h-24 resize-none"
-                />
-              </div>
-            </div>
-          </div>
+          <ThemePanel />
+        )}
+        
+        {activeTab === 'ai' && (
+          <AIPanel selectedFamily={selectedFamily} />
         )}
         
         <div className="mt-auto p-4 border-t border-neutral-800 text-center">
