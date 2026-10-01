@@ -10,8 +10,10 @@ import {
 } from '../utils/validation';
 import { StorageFullError, saveProject as saveProjectToDb } from '../utils/db';
 import { readImageDimensions } from '../utils/assets';
-import { templates } from '../utils/templates';
 import { validateLayout } from '../utils/layoutValidator';
+import { convertLayoutToElements } from '../utils/layoutAdapter';
+import { apiRequest } from '../utils/api';
+import { useAuthStore } from './authStore';
 
 /** Maximum number of undo steps kept in memory. */
 export const HISTORY_LIMIT = 60;
@@ -49,8 +51,8 @@ interface EditorState {
   setActiveSlide: (slideId: string) => void;
   applyTemplateToSlide: (templateSlide: Slide) => void;
   updateSlideBackground: (slideId: string, background: string) => void;
-  appendGeneratedOutline: (outline: { layout: string; content: Record<string, string> }[], templateFamily: string) => void;
-
+  appendGeneratedOutline: (outline: { layout: string; content: Record<string, any> }[], templateFamily: string) => void;
+  regenerateSlide: (slideId: string, context: string, layoutType: string) => Promise<void>;
   updateTheme: (updates: Partial<ThemeTokens>) => void;
 
   addElement: (element: SlideElement) => void;
@@ -227,9 +229,10 @@ export const useEditorStore = create<EditorState>((set, get) => {
     loadProject: (input, source = 'local') => {
       const result = validateProjectDocument(clone(input));
       if (!result.ok) {
-        const message = result.errors[0] ?? 'Unknown error';
+        const errs = (result as { ok: false; errors: string[] }).errors;
+        const message = errs[0] ?? 'Unknown error';
         set({ statusMessage: `Could not open the project: ${message}` });
-        return { ok: false, errors: result.errors };
+        return { ok: false, errors: errs };
       }
 
       const project = result.project;
@@ -338,7 +341,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
     applyTemplateToSlide: (templateSlide) => {
       const validation = validateTemplateSlide(clone(templateSlide));
       if (!validation.ok) {
-        set({ statusMessage: `Template skipped: ${validation.errors[0]}` });
+        const errs = (validation as { ok: false; errors: string[] }).errors;
+        set({ statusMessage: `Template skipped: ${errs[0]}` });
         return;
       }
 
@@ -400,30 +404,21 @@ export const useEditorStore = create<EditorState>((set, get) => {
       commit('debounced');
     },
 
-    appendGeneratedOutline: (outline, templateFamily) => {
+    appendGeneratedOutline: (outline, _templateFamily) => {
       const state = get();
       if (!state.project) return;
       
       const newSlides: Slide[] = [];
-      const family = templates[templateFamily as keyof typeof templates] || templates['minimal'];
-
+      const theme = state.project.theme;
+      
       for (const item of outline) {
-        const layoutFn = family[item.layout as keyof typeof family];
-        if (layoutFn && typeof layoutFn === 'function') {
-          const slide: Slide = layoutFn();
-          slide.id = uuidv4();
-          slide.elements = slide.elements.map(el => {
-            const next = { ...el, id: uuidv4() };
-            if (next.type === 'text' && next.role) {
-              const textContent = item.content[next.role];
-              if (textContent) {
-                (next as any).text = textContent;
-              }
-            }
-            return next;
-          });
-          newSlides.push(slide);
-        }
+        const slideElements = convertLayoutToElements(item, theme);
+        const slide: Slide = {
+          id: uuidv4(),
+          elements: slideElements,
+          background: item.layout === 'cover' ? theme.colors.background : '#ffffff', // can be improved later
+        };
+        newSlides.push(slide);
       }
 
       if (newSlides.length > 0) {
@@ -436,6 +431,51 @@ export const useEditorStore = create<EditorState>((set, get) => {
         });
         set({ activeSlideId: newSlides[0].id, activeElementIds: [] });
         commit('immediate');
+      }
+    },
+
+    regenerateSlide: async (slideId: string, context: string, layoutType: string) => {
+      const state = get();
+      if (!state.project) return;
+      const slideIndex = state.project.slides.findIndex(s => s.id === slideId);
+      if (slideIndex === -1) return;
+
+      const token = useAuthStore.getState().token;
+      if (!token) {
+        set({ statusMessage: 'You must be signed in to regenerate content.' });
+        return;
+      }
+
+      set({ statusMessage: 'Regenerating slide...' });
+
+      try {
+        const result = await apiRequest<{ slide: any }>('/api/generate/slide', {
+          method: 'POST',
+          token,
+          body: { context, layoutType }
+        });
+
+        if (!result.ok) {
+          throw new Error((result as any).error?.message || 'Failed to regenerate slide');
+        }
+
+        const theme = state.project.theme;
+        const newElements = convertLayoutToElements(result.data.slide, theme);
+
+        withProject((project) => {
+          const nextSlides = [...project.slides];
+          nextSlides[slideIndex] = {
+            ...nextSlides[slideIndex],
+            elements: newElements,
+            // Keep background if it was already customized, or update if it's cover? Let's leave background as is to preserve user edits.
+          };
+          return { ...project, slides: nextSlides };
+        });
+        
+        set({ statusMessage: 'Slide regenerated.' });
+        commit('immediate');
+      } catch (e: any) {
+        set({ statusMessage: `Regeneration failed: ${e.message}` });
       }
     },
 
@@ -459,7 +499,8 @@ export const useEditorStore = create<EditorState>((set, get) => {
       if (!state.project || !state.activeSlideId) return;
       const validation = validateSlideElement(element);
       if (!validation.ok) {
-        set({ statusMessage: `Element not added: ${validation.errors[0]}` });
+        const errs = (validation as { ok: false; errors: string[] }).errors;
+        set({ statusMessage: `Element not added: ${errs[0]}` });
         return;
       }
 
@@ -730,9 +771,44 @@ export const useEditorStore = create<EditorState>((set, get) => {
             : error instanceof Error
               ? error.message
               : 'The project could not be saved locally.';
-        // Never report success when the write failed, and keep the in-memory
-        // document so the user can retry or export before losing work.
         set({ localSaveState: 'error', localSaveError: message, statusMessage: message });
+        return; // Don't try cloud if local failed, or maybe we should? Local failure means disk is full, we could still save to cloud.
+      }
+
+      const token = useAuthStore.getState().token;
+      if (!token) {
+        set({ cloudState: 'offline', cloudError: null });
+        return;
+      }
+
+      set({ cloudState: 'syncing', cloudError: null });
+      try {
+        let result = await apiRequest(`/api/projects/${project.id}`, {
+          method: 'PUT',
+          token,
+          body: { document: project },
+        });
+
+        if (!result.ok && (result as any).error?.status === 404) {
+          result = await apiRequest(`/api/projects`, {
+            method: 'POST',
+            token,
+            body: { id: project.id, document: project },
+          });
+        }
+
+        if (!result.ok) {
+          const apiError = (result as any).error;
+          if (apiError?.code === 'STALE_REVISION') {
+            set({ cloudState: 'conflict', cloudError: apiError.message, statusMessage: apiError.message });
+          } else {
+            set({ cloudState: 'error', cloudError: apiError?.message || 'Failed to sync to cloud' });
+          }
+        } else {
+          set({ cloudState: 'synced', cloudSyncedAt: Date.now(), cloudError: null });
+        }
+      } catch (err) {
+        set({ cloudState: 'error', cloudError: 'Network error during sync' });
       }
     },
   };

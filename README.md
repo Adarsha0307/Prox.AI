@@ -34,11 +34,34 @@ Prox is a complete tool that supports the entire lifecycle of creating stunning 
 - `server/` - Backend application (Node.js, Express, Better-SQLite3, Drizzle ORM)
 - `docs/` - Original documentation and implementation plans
 
-## Getting Started
+## Getting Started & Development Setup
 
 ### Prerequisites
 - Node.js (v18+)
 - npm or pnpm
+
+### Environment Variables & AI Provider Configuration
+Create a `.env` file in the `server` directory (`server/.env`):
+```env
+# Authentication
+AUTH_SECRET="your_long_random_secret_string" # Required for JWT signing
+
+# AI Configuration
+OPENAI_API_KEY="sk-..."                      # Platform-funded API key (optional if MOCK or BYOK used)
+ENABLE_PLATFORM_FUNDING="true"               # Set to 'false' to require users to provide their own key
+MOCK_AI_PROVIDER="false"                     # Set to 'true' to use a mock AI provider for local dev (bypasses costs)
+
+# Server Config
+CORS_ORIGIN="http://localhost:5173, http://127.0.0.1:5173"
+PORT="3000"
+```
+
+### Database Migrations
+Prox uses SQLite and Drizzle ORM. Before running the backend for the first time, push the database schema:
+```bash
+cd server
+npm run db:push
+```
 
 ### Running Locally
 
@@ -46,7 +69,6 @@ Prox is a complete tool that supports the entire lifecycle of creating stunning 
    ```bash
    cd server
    npm install
-   cp .env.example .env # Add your OPENAI_API_KEY and AUTH_SECRET
    npm run dev
    ```
 
@@ -59,9 +81,35 @@ Prox is a complete tool that supports the entire lifecycle of creating stunning 
 
 3. Open `http://localhost:5173` in your browser.
 
-## Running Tests
-Integration tests for the API and billing logic are written in native `node:test`:
+## Testing & Building
+
+### Running Tests
+Integration tests for the API, user registration, project isolation, and billing logic are written in native `node:test`.
 ```bash
 cd server
-npm test
+npm run test
 ```
+*Note: The frontend currently relies on manual QA workflows and type checking for validation.*
+
+### Building for Production
+The client and server must be built separately before deployment.
+
+**Build Client (Static Vite Output):**
+```bash
+cd client
+npm run build
+# Outputs to client/dist/
+```
+
+**Build Server (Compiled Node App):**
+```bash
+cd server
+npm run build
+# Outputs to server/dist/
+```
+
+## Deployment Requirements
+1. **Node.js Environment:** The backend requires a Node.js runtime (v18+).
+2. **Persistent Storage:** SQLite (`sqlite.db`) and the `server/uploads/` directory must be stored on a persistent volume. If deployed on ephemeral containers (like Heroku or standard Docker without volumes), uploaded images and the database will be lost on restart.
+3. **Static File Hosting:** The frontend `dist` directory should be hosted on a CDN or static web host (like Vercel, Netlify, or Nginx).
+4. **Environment Variables:** Ensure `AUTH_SECRET` and CORS origins are securely configured in your production environment.

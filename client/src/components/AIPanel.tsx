@@ -33,6 +33,12 @@ export const AIPanel: React.FC<AIPanelProps> = ({ selectedFamily }) => {
   const { openaiKey, anthropicKey } = useCredentialStore();
   const webResearchAvailable = Boolean(openaiKey || anthropicKey);
 
+  const activeSlideId = useEditorStore((state) => state.activeSlideId);
+  const regenerateSlide = useEditorStore((state) => state.regenerateSlide);
+  const [regenLayout, setRegenLayout] = useState<string>('explanation');
+  const [regenContext, setRegenContext] = useState('');
+  const [isRegenerating, setIsRegenerating] = useState(false);
+
   const resetFlow = () => {
     setStep('input');
     setTopic('');
@@ -62,7 +68,10 @@ export const AIPanel: React.FC<AIPanelProps> = ({ selectedFamily }) => {
         token,
         body: formData,
       });
-      if (!res.ok) throw new Error(res.error.message || 'Failed to extract');
+      if (!res.ok) {
+        const err = (res as { ok: false; error: any }).error;
+        throw new Error(err.message || 'Failed to extract');
+      }
 
       setExtractedText(res.data.text);
       setSourceName(res.data.filename);
@@ -206,7 +215,53 @@ export const AIPanel: React.FC<AIPanelProps> = ({ selectedFamily }) => {
         <Wand2 size={16} /> AI Content
       </h2>
       
+      {activeSlideId && (
+        <div className="mb-8 p-3 bg-neutral-800 border border-neutral-700 rounded-lg">
+          <h3 className="text-xs font-semibold text-white mb-2">Regenerate Active Slide</h3>
+          <select 
+            value={regenLayout}
+            onChange={(e) => setRegenLayout(e.target.value)}
+            className="w-full bg-neutral-900 text-neutral-300 p-2 rounded text-xs border border-neutral-700 mb-2 outline-none"
+          >
+            <option value="cover">Cover / Hook</option>
+            <option value="introduction">Introduction</option>
+            <option value="explanation">Explanation</option>
+            <option value="list">List</option>
+            <option value="text-and-image">Text + Image</option>
+            <option value="comparison">Comparison</option>
+            <option value="quote">Quote</option>
+            <option value="statistic">Statistic</option>
+            <option value="process">Process / Timeline</option>
+            <option value="conclusion">Conclusion</option>
+            <option value="cta">Call to Action</option>
+          </select>
+          <textarea 
+            placeholder="Context or specific instructions for this slide..."
+            value={regenContext}
+            onChange={(e) => setRegenContext(e.target.value)}
+            className="w-full bg-neutral-900 text-white p-2 rounded text-xs border border-neutral-700 outline-none h-16 resize-none mb-2"
+          />
+          <button 
+            onClick={async () => {
+              setIsRegenerating(true);
+              await regenerateSlide(activeSlideId, regenContext, regenLayout);
+              setIsRegenerating(false);
+            }}
+            disabled={isRegenerating}
+            className="w-full bg-neutral-700 hover:bg-neutral-600 disabled:opacity-50 text-white p-2 rounded text-xs transition-colors flex justify-center items-center gap-2"
+          >
+            {isRegenerating ? 'Regenerating...' : 'Regenerate Slide'}
+          </button>
+        </div>
+      )}
+
       <div className="space-y-6">
+        <div className="relative flex items-center mb-2">
+          <div className="flex-grow border-t border-neutral-700"></div>
+          <span className="flex-shrink-0 mx-2 text-xs text-neutral-500">NEW CAROUSEL OUTLINE</span>
+          <div className="flex-grow border-t border-neutral-700"></div>
+        </div>
+
         {/* Topic Input */}
         <div>
           <label className="text-xs text-neutral-500 mb-1 block">Topic or Text</label>

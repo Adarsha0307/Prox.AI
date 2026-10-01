@@ -43,7 +43,10 @@ export const CreationWizard: React.FC = () => {
         token,
         body: formData,
       });
-      if (!res.ok) throw new Error(res.error.message || 'Failed to extract document');
+      if (!res.ok) {
+        const err = (res as { ok: false; error: any }).error;
+        throw new Error(err.message || 'Failed to extract document');
+      }
       wizard.updateDraft({ sourceText: res.data.text });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Extraction error');
